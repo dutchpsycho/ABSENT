@@ -1,0 +1,14 @@
+target/**
+debug/**
+
+SNOW WHITE/backtrace.rs
+SNOW WHITE/LdrpDetectDetour.rs
+
+C/
+
+.idea/shelf/
+.idea/workspace.xml
+.idea/dataSources/
+.idea/dataSources.local.xml
+
+*build
