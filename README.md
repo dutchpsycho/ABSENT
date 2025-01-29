@@ -14,7 +14,6 @@
     - [Build the Project](#build-the-project)
     - [Running ABSENT](#running-absent)
     - [Example](#example)
-    - [Or, you can run ``ABSENT.exe`` and use the cl directly](#or-you-can-run-absentexe-and-use-the-cl-directly)
     - [Output](#output)
   - [Contributing](#contributing)
 
@@ -83,7 +82,7 @@ or
 ./ABSENT "Untitled - Notepad"
 ```
 
-### Or, you can run ``ABSENT.exe`` and use the cl directly
+Or, you can run ``ABSENT.exe`` and use the cl directly
 
 ### Output
 
