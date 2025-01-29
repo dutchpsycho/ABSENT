@@ -1,6 +1,6 @@
 # ABSENT
 
-![ABSENT](.idea/ABSENT.gif)
+![ABSENT](.idea/EXAMPLE.gif)
 
 ## Table of Contents
 

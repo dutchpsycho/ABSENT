@@ -22,6 +22,18 @@ use std::io::{self, Write};
 use anyhow::{Result, Error};
 
 fn main() -> Result<(), Error> {
+    let ascii_art = r#"
+    db      `7MM"""Yp,  .M"""bgd `7MM"""YMM  `7MN.   `7MF'MMP""MM""YMM 
+    ;MM:       MM    Yb ,MI    "Y   MM    `7    MMN.    M  P'   MM   `7 
+   ,V^MM.      MM    dP `MMb.       MM   d      M YMb   M       MM      
+  ,M  `MM      MM"""bg.   `YMMNq.   MMmmMM      M  `MN. M       MM      
+  AbmmmqMA     MM    `Y .     `MM   MM   Y  ,   M   `MM.M       MM      
+ A'     VML    MM    ,9 Mb     dM   MM     ,M   M     YMM       MM      
+.AMA.   .AMMA..JMMmmmd9  P"Ybmmd"  .JMMmmmmMMM .JML.    YM     .JMML.    
+   "#;
+   
+   println!("{}", ascii_art);
+
     let args: Vec<String> = env::args().collect();
 
     let input = if args.len() > 1 {
