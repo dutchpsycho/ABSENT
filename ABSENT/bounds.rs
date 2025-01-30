@@ -4,32 +4,75 @@ use std::os::windows::ffi::OsStringExt;
 use std::ptr::null_mut;
 
 use winapi::ctypes::c_void;
-use winapi::um::handleapi::CloseHandle;
+
 use winapi::um::memoryapi::ReadProcessMemory;
 use winapi::um::psapi::{EnumProcessModulesEx, GetModuleInformation, MODULEINFO, LIST_MODULES_64BIT};
-use winapi::um::tlhelp32::{CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE};
-use winapi::um::winnt::{HANDLE, IMAGE_DOS_HEADER, IMAGE_NT_HEADERS64, IMAGE_IMPORT_DESCRIPTOR};
+use winapi::um::winnt::{HANDLE, IMAGE_DOS_HEADER, IMAGE_IMPORT_DESCRIPTOR, IMAGE_NT_HEADERS64};
 use winapi::um::psapi::GetModuleBaseNameW;
 
 #[derive(Debug)]
 pub struct HookDetectionResult {
     pub function_rva: u32,
     pub function_va: usize,
-    pub expected_module_base: usize,
-    pub expected_module_end: usize,
+    pub expected_module: String,
+    pub actual_module: String,
     pub hooked: bool,
 }
 
-fn is_address_hooked(address: usize, module_bounds: &HashMap<String, (usize, usize)>) -> bool {
-    for (_, &(base, size)) in module_bounds.iter() {
+fn is_address_hooked(address: usize, module_bounds: &HashMap<String, (usize, usize)>) -> (bool, String) {
+    for (module, &(base, size)) in module_bounds.iter() {
         if address >= base && address < base + size {
-            return false;
+            return (false, module.clone());
         }
     }
-    true
+    println!("Address 0x{:x} is hooked!", address);
+    (true, "<unknown>".to_string())
+}
+
+fn read_struct<T>(process_handle: HANDLE, remote_addr: usize) -> Option<T> {
+    let mut data: T = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<T>();
+
+    let success = unsafe {
+        ReadProcessMemory(
+            process_handle,
+            remote_addr as *const c_void,
+            &mut data as *mut _ as *mut c_void,
+            size,
+            null_mut(),
+        )
+    };
+
+    if success == 0 {
+        None
+    } else {
+        Some(data)
+    }
+}
+
+fn read_pointer(process_handle: HANDLE, remote_addr: usize) -> Option<usize> {
+    let mut val: usize = 0;
+    let size = std::mem::size_of::<usize>();
+
+    let success = unsafe {
+        ReadProcessMemory(
+            process_handle,
+            remote_addr as *const c_void,
+            &mut val as *mut _ as *mut c_void,
+            size,
+            null_mut(),
+        )
+    };
+
+    if success == 0 {
+        None
+    } else {
+        Some(val)
+    }
 }
 
 fn get_module_bounds(process_handle: HANDLE) -> HashMap<String, (usize, usize)> {
+    println!("Gathering module bounds...");
     let mut modules = vec![null_mut(); 1024];
     let mut needed = 0;
 
@@ -43,6 +86,7 @@ fn get_module_bounds(process_handle: HANDLE) -> HashMap<String, (usize, usize)> 
         )
     } == 0
     {
+        println!("EnumProcessModulesEx failed!");
         return HashMap::new();
     }
 
@@ -51,108 +95,99 @@ fn get_module_bounds(process_handle: HANDLE) -> HashMap<String, (usize, usize)> 
 
     for i in 0..module_count {
         let mut module_info: MODULEINFO = unsafe { std::mem::zeroed() };
-
-        if unsafe {
+        let success = unsafe {
             GetModuleInformation(
                 process_handle,
-                modules[i] as *mut _,
+                modules[i],
                 &mut module_info,
                 std::mem::size_of::<MODULEINFO>() as u32,
             )
-        } == 0
-        {
+        };
+        if success == 0 {
+            println!("Failed GetModuleInformation at index {}", i);
             continue;
         }
 
         let mut name_buf = [0u16; 256];
-        if unsafe {
+        let name_len = unsafe {
             GetModuleBaseNameW(
                 process_handle,
-                modules[i] as *mut _,
+                modules[i],
                 name_buf.as_mut_ptr(),
                 name_buf.len() as u32,
             )
-        } == 0
-        {
+        };
+        if name_len == 0 {
+            println!("Failed GetModuleBaseNameW at index {}", i);
             continue;
         }
 
-        let name = OsString::from_wide(&name_buf)
+        let name = OsString::from_wide(&name_buf[..name_len as usize])
             .to_string_lossy()
-            .trim_end_matches('\0')
             .to_lowercase();
 
-        module_map.insert(name, (module_info.lpBaseOfDll as usize, module_info.SizeOfImage as usize));
+        let base = module_info.lpBaseOfDll as usize;
+        let size = module_info.SizeOfImage as usize;
+
+        println!("{} | Base: 0x{:x} | Size: 0x{:x}", name, base, size);
+        module_map.insert(name, (base, size));
     }
 
     module_map
 }
 
-pub fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<HookDetectionResult> {
+/// Scans the Import Address Table (IAT) of a target module for hooks.
+fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<HookDetectionResult> {
+    println!("Scanning IAT for hooks in '{}'", target_module);
+
     let module_bounds = get_module_bounds(process_handle);
-    let (module_base, module_size) = match module_bounds.get(target_module) {
+    let (module_base, module_size) = match module_bounds.get(&target_module.to_lowercase()) {
         Some(bounds) => *bounds,
-        None => return vec![],
+        None => {
+            println!("Target module '{}' not found!", target_module);
+            return vec![];
+        }
     };
 
-    let mut dos_header: IMAGE_DOS_HEADER = unsafe { std::mem::zeroed() };
-    if unsafe {
-        ReadProcessMemory(
-            process_handle,
-            module_base as *const c_void,
-            &mut dos_header as *mut _ as *mut c_void,
-            std::mem::size_of::<IMAGE_DOS_HEADER>(),
-            null_mut(),
-        )
-    } == 0
-    {
-        return vec![];
-    }
+    let dos_header: IMAGE_DOS_HEADER = match read_struct(process_handle, module_base) {
+        Some(hdr) => hdr,
+        None => {
+            println!("Failed to read DOS header for '{}'", target_module);
+            return vec![];
+        }
+    };
 
-    if dos_header.e_lfanew == 0 || dos_header.e_lfanew as usize > module_size {
+    if dos_header.e_lfanew == 0 || (dos_header.e_lfanew as usize) > module_size {
+        println!("Invalid DOS header for '{}'", target_module);
         return vec![];
     }
 
     let nt_headers_addr = module_base + dos_header.e_lfanew as usize;
-    let mut nt_headers: IMAGE_NT_HEADERS64 = unsafe { std::mem::zeroed() };
+    let nt_headers: IMAGE_NT_HEADERS64 = match read_struct(process_handle, nt_headers_addr) {
+        Some(hdr) => hdr,
+        None => {
+            println!("Failed to read NT headers for '{}'", target_module);
+            return vec![];
+        }
+    };
 
-    if unsafe {
-        ReadProcessMemory(
-            process_handle,
-            nt_headers_addr as *const c_void,
-            &mut nt_headers as *mut _ as *mut c_void,
-            std::mem::size_of::<IMAGE_NT_HEADERS64>(),
-            null_mut(),
-        )
-    } == 0
-    {
+    let import_dir = nt_headers.OptionalHeader.DataDirectory[1]; // Import Table
+    if import_dir.VirtualAddress == 0 || import_dir.VirtualAddress as usize > module_size {
+        println!("No import table found for '{}'", target_module);
         return vec![];
     }
 
-    let import_directory = nt_headers.OptionalHeader.DataDirectory[1]; // import table
-    if import_directory.VirtualAddress == 0 || import_directory.VirtualAddress as usize > module_size {
-        return vec![];
-    }
-
-    let import_descriptor_addr = module_base + import_directory.VirtualAddress as usize;
-
-    let mut results = vec![];
-    let mut import_descriptor: IMAGE_IMPORT_DESCRIPTOR = unsafe { std::mem::zeroed() };
+    let import_desc_base = module_base + import_dir.VirtualAddress as usize;
+    let mut results = Vec::new();
     let mut offset = 0;
 
     loop {
-        if unsafe {
-            ReadProcessMemory(
-                process_handle,
-                (import_descriptor_addr + offset) as *const c_void,
-                &mut import_descriptor as *mut _ as *mut c_void,
-                std::mem::size_of::<IMAGE_IMPORT_DESCRIPTOR>(),
-                null_mut(),
-            )
-        } == 0
-        {
-            break;
-        }
+        let import_descriptor_addr = import_desc_base + offset;
+        let import_descriptor: IMAGE_IMPORT_DESCRIPTOR =
+            match read_struct(process_handle, import_descriptor_addr) {
+                Some(desc) => desc,
+                None => break,
+            };
 
         if import_descriptor.Name == 0 {
             break;
@@ -162,31 +197,28 @@ pub fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<Ho
         let mut thunk_offset = 0;
 
         loop {
-            let mut function_va: usize = 0;
-            if unsafe {
-                ReadProcessMemory(
-                    process_handle,
-                    (thunk_data_addr + thunk_offset) as *const c_void,
-                    &mut function_va as *mut _ as *mut c_void,
-                    std::mem::size_of::<usize>(),
-                    null_mut(),
-                )
-            } == 0
-            {
-                break;
-            }
-
+            let func_ptr_addr = thunk_data_addr + thunk_offset;
+            let function_va = match read_pointer(process_handle, func_ptr_addr) {
+                Some(val) => val,
+                None => break,
+            };
             if function_va == 0 {
                 break;
             }
 
-            let hooked = is_address_hooked(function_va, &module_bounds);
+            let (hooked, actual_module) = is_address_hooked(function_va, &module_bounds);
             if hooked {
+                let rva = (func_ptr_addr - module_base) as u32;
+                println!(
+                    "[ALERT] Hook detected in '{}'! RVA: 0x{:x}, VA: 0x{:x}, Expected: '{}', Found: '{}'",
+                    target_module, rva, function_va, target_module, actual_module
+                );
+
                 results.push(HookDetectionResult {
-                    function_rva: (thunk_data_addr + thunk_offset - module_base) as u32,
+                    function_rva: rva,
                     function_va,
-                    expected_module_base: module_base,
-                    expected_module_end: module_base + module_size,
+                    expected_module: target_module.to_string(),
+                    actual_module,
                     hooked,
                 });
             }
@@ -201,8 +233,10 @@ pub fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<Ho
 }
 
 pub fn scan_ntdll_kernel32(process_handle: HANDLE) -> Vec<HookDetectionResult> {
+    println!("Scanning for hooks in 'ntdll.dll' and 'kernel32.dll'...");
     let mut all_hooks = vec![];
     all_hooks.extend(scan_iat_for_hooks(process_handle, "ntdll.dll"));
     all_hooks.extend(scan_iat_for_hooks(process_handle, "kernel32.dll"));
+    println!("Total hooks found: {}", all_hooks.len());
     all_hooks
 }

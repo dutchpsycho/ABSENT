@@ -23,8 +23,8 @@
 
 ## Features
 
-- **Import Address Table (IAT) Hook Detection**
-  - Enumerates loaded modules and verifies the integrity of imported function addresses.
+- **Import Address Table (IAT) Hook Detection & Bound checking**
+  - Enumerates loaded modules and verifies the integrity of imported function addresses, also checks bounds on IAT ptrs incase they've been redirected outside of ``ntdll.dll``'s module.
   
 - **Export Address Table (EAT) Verification**
   - Ensures exported functions in critical DLLs like `ntdll.dll` and `kernel32.dll` are unaltered.
@@ -34,6 +34,12 @@
   
 - **Syscall Redirection Detection**
   - Compares syscall stubs against kernel expectations to spot redirections or modifications (Hooks on ``syscall``).
+
+- **Privately mapped syscalls detection**
+  - Scans for common syscall prologues within private memory to identify any stub-based type system.
+
+- **Dupe module check**
+  - Reads PEB->LDR to check if ``ntdll.dll`` has been shadow loaded or loaded multiple times.
 
 ## Installation
 

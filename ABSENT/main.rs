@@ -13,10 +13,14 @@
 pub mod scope;
 pub mod hooks;
 pub mod bounds;
+pub mod ldr;
+pub mod mem;
 
 use scope::*;
 use hooks::*;
 use bounds::*;
+use ldr::*;
+use mem::*;
 
 use std::env;
 use std::io::{self, Write};
@@ -64,6 +68,8 @@ fn main() -> Result<(), Error> {
     println!("Process handle: {:?}\n  Thread handle: {:?}\n  PID: {}", pH, tH, pI.pid);
 
     scan_ntdll_kernel32(pH);
+    mem(pH);
+    check_peb_ldr(pH);
 
     match process(pH) {
         Ok(_) => println!("No hooks detected. Analysis complete."),

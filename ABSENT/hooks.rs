@@ -7,6 +7,8 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 use std::io::{self, Write};
 
+use winapi::ctypes::c_void;
+
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::sysinfoapi::GetSystemDirectoryW;
 use winapi::um::libloaderapi::LOAD_LIBRARY_AS_DATAFILE;
@@ -15,8 +17,8 @@ use winapi::um::memoryapi::ReadProcessMemory;
 use winapi::um::psapi::{EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO};
 use winapi::um::tlhelp32::{CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE};
 use winapi::um::winnt::{HANDLE, IMAGE_DOS_HEADER, IMAGE_NT_HEADERS64, IMAGE_EXPORT_DIRECTORY, IMAGE_DIRECTORY_ENTRY_EXPORT};
+
 use winapi::shared::minwindef::HMODULE;
-use winapi::ctypes::c_void;
 
 pub struct FunctionInfo {
     pub start: u64,
