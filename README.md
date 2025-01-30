@@ -19,7 +19,7 @@
 
 ## Overview
 
-**ABSENT** is a sophisticated hook detection tool designed for Windows x64 systems (Windows 10 & 11). Written in Rust with future plans to incorporate C, ABSENT leverages low-level system interactions to identify and analyze various forms of hooks and tampering within running processes. Primarily targeted towards red-team operations and offensive security assessments, ABSENT provides a robust framework for detecting inline hooks, IAT/EAT modifications, syscall redirections, and more.
+**ABSENT** is a sophisticated hook detection tool designed for Windows x64 systems (Windows 10 & 11). Written in Rust, ABSENT leverages low-level system interactions to identify and analyze various forms of hooks and tampering within running processes. Primarily targeted towards red-team operations and offensive security assessments, ABSENT provides a robust framework for detecting inline hooks, IAT/EAT modifications, syscall redirections, private syscall dispatcher stubs and module duplication (Shadow) attacks.
 
 ## Features
 
