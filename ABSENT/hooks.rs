@@ -1,5 +1,3 @@
-use crate::winsys::*;
-
 use capstone::arch::x86::X86Insn;
 use capstone::arch::BuildsCapstone;
 use capstone::prelude::*;
@@ -8,6 +6,17 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::io::{self, Write};
+
+use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::sysinfoapi::GetSystemDirectoryW;
+use winapi::um::libloaderapi::LOAD_LIBRARY_AS_DATAFILE;
+use winapi::um::libloaderapi::{LoadLibraryExA, GetModuleHandleA, GetProcAddress};
+use winapi::um::memoryapi::ReadProcessMemory;
+use winapi::um::psapi::{EnumProcessModules, GetModuleBaseNameA, GetModuleInformation, MODULEINFO};
+use winapi::um::tlhelp32::{CreateToolhelp32Snapshot, Module32FirstW, Module32NextW, MODULEENTRY32W, TH32CS_SNAPMODULE};
+use winapi::um::winnt::{HANDLE, IMAGE_DOS_HEADER, IMAGE_NT_HEADERS64, IMAGE_EXPORT_DIRECTORY, IMAGE_DIRECTORY_ENTRY_EXPORT};
+use winapi::shared::minwindef::HMODULE;
+use winapi::ctypes::c_void;
 
 pub struct FunctionInfo {
     pub start: u64,
@@ -45,12 +54,8 @@ unsafe fn loc_ntdll(process_handle: HANDLE) -> Result<*const u8, String> {
         module_handles.as_mut_ptr(),
         std::mem::size_of_val(&module_handles) as u32,
         &mut bytes_needed,
-    ) == 0
-
-    {
-        return Err(format!(
-            "Failed to enum -> {}", GetLastError()
-        ));
+    ) == 0 {
+        return Err(format!("failed to enumerate modules -> {}", GetLastError()));
     }
 
     for &module_handle in &module_handles[..(bytes_needed / std::mem::size_of::<HMODULE>() as u32) as usize] {
@@ -58,23 +63,20 @@ unsafe fn loc_ntdll(process_handle: HANDLE) -> Result<*const u8, String> {
         if GetModuleBaseNameA(
             process_handle,
             module_handle,
-            module_name.as_mut_ptr(),
+            module_name.as_mut_ptr() as *mut i8, // FIX: cast to `*mut i8`
             module_name.len() as u32,
-        ) > 0
-
-        {
-            let name = CStr::from_ptr(module_name.as_ptr() as *const i8)
+        ) > 0 {
+            let name = CStr::from_ptr(module_name.as_ptr() as *const i8) // FIX: cast to `*const i8`
                 .to_string_lossy()
                 .to_string();
             if name.eq_ignore_ascii_case("ntdll.dll") {
-                println!("Located ntdll -> {:?}", module_handle);
+                println!("located ntdll -> {:?}", module_handle);
                 return Ok(module_handle as *const u8);
             }
         }
-
     }
 
-    Err("Failed to locate ntdll.dll in target process".to_string())
+    Err("failed to locate ntdll.dll in target process".to_string())
 }
 
 unsafe fn locate_exports(module_base: *const u8, exports: &mut HashMap<String, u64>) -> Result<(), String> {
@@ -108,7 +110,7 @@ fn sys_ntdll() -> Result<String, String> {
     let mut sys32_path = vec![0u16; 260];
     unsafe {
         if GetSystemDirectoryW(sys32_path.as_mut_ptr(), sys32_path.len() as u32) == 0 {
-            return Err(format!("Uh? -> {}", GetLastError()));
+            return Err(format!("failed to get system directory -> {}", GetLastError()));
         }
     }
 
@@ -120,7 +122,7 @@ fn sys_ntdll() -> Result<String, String> {
 
 unsafe fn load_ntdll(path: &str) -> Result<*const u8, String> {
     let c_path = CString::new(path).map_err(|_| "Invalid sys32_path".to_string())?;
-    let module = LoadLibraryExA(c_path.as_ptr() as *const u8, ptr::null_mut(), LOAD_LIBRARY_AS_DATAFILE);
+    let module = LoadLibraryExA(c_path.as_ptr(), ptr::null_mut(), 0);
 
     if module.is_null() {
         return Err(format!(
@@ -137,7 +139,6 @@ pub fn routines(
     module_base: *const u8,
     label: &str,
 ) -> HashMap<String, FunctionInfo> {
-
     let cs = Capstone::new()
         .x86()
         .mode(arch::x86::ArchMode::Mode64)
@@ -149,8 +150,13 @@ pub fn routines(
     let mut log_buffer = String::new();
 
     log_buffer.push_str(&format!("\n{} Functions:\n", label));
-    log_buffer.push_str("Name                     | Start Address   | End Address\n");
-    log_buffer.push_str("-------------------------|-----------------|------------\n");
+
+    let max_name_length = exports
+        .keys()
+        .filter(|export| export.starts_with("Ki") || export.starts_with("Zw") || export.starts_with("Nt"))
+        .map(|name| name.len())
+        .max()
+        .unwrap_or(25);
 
     let prefix_priority = |name: &str| match name.get(0..2) {
         Some("Ki") => 0,
@@ -167,14 +173,24 @@ pub fn routines(
         .collect();
     sorted_functions.sort_by_key(|(name, _)| (prefix_priority(name), (*name).clone()));
 
+    log_buffer.push_str(&format!(
+        "{:<width$} | {:<14} | {:<14}\n",
+        "Name", "Start Address", "End Address",
+        width = max_name_length
+    ));
+    log_buffer.push_str(&format!(
+        "{}|{}|{}\n",
+        "-".repeat(max_name_length),
+        "-".repeat(16),
+        "-".repeat(16)
+    ));
+
     for (export, &rva) in sorted_functions {
         let routine_start = unsafe { module_base.add(rva as usize) };
         let routine_data = unsafe { std::slice::from_raw_parts(routine_start, 0x1000) };
 
         match cs.disasm_all(routine_data, rva) {
             Ok(insns) => {
-
-                // func end is USUALLY a ret/jmp
                 let end_address = insns.iter().find_map(|insn| {
                     let id = insn.id().0;
                     if id == X86Insn::X86_INS_RET as u32 || id == X86Insn::X86_INS_JMP as u32 {
@@ -194,15 +210,17 @@ pub fn routines(
                     );
 
                     log_buffer.push_str(&format!(
-                        "{:<25} | 0x{:08X}       | 0x{:08X}\n",
-                        export, rva, end
+                        "{:<width$} | 0x{:08X}    | 0x{:08X}\n",
+                        export, rva, end,
+                        width = max_name_length
                     ));
                 }
             }
             Err(e) => {
                 log_buffer.push_str(&format!(
-                    "{:<25} | 0x{:08X}       | Failed to disassemble -> {}\n",
-                    export, rva, e
+                    "{:<width$} | 0x{:08X}    | Failed to disassemble -> {}\n",
+                    export, rva, e,
+                    width = max_name_length
                 ));
             }
         }

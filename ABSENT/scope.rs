@@ -1,9 +1,18 @@
-use crate::winsys::*;
-
 use std::ptr::null_mut;
 use std::ffi::{CString, CStr};
 
 use anyhow::{Result, Context};
+
+use winapi::um::processthreadsapi::{OpenProcess, OpenThread, GetThreadTimes};
+use winapi::um::winnt::{HANDLE, PROCESS_ALL_ACCESS, THREAD_ALL_ACCESS};
+use winapi::um::tlhelp32::{
+    CreateToolhelp32Snapshot, Process32First, Process32Next, Thread32First, Thread32Next,
+    PROCESSENTRY32, THREADENTRY32, TH32CS_SNAPPROCESS, TH32CS_SNAPTHREAD,
+};
+use winapi::um::handleapi::CloseHandle;
+use winapi::um::winuser::FindWindowA;
+use winapi::um::winuser::GetWindowThreadProcessId;
+use winapi::shared::minwindef::FILETIME;
 
 pub struct ProcessInfo {
     pub handle: HANDLE,
@@ -12,7 +21,6 @@ pub struct ProcessInfo {
 }
 
 pub fn Scope(process_name: &str) -> Result<ProcessInfo> {
-
     let pid = match wPID(process_name) {
         Some(pid) => pid,
         None => PID(process_name)?,
@@ -35,7 +43,7 @@ pub fn Scope(process_name: &str) -> Result<ProcessInfo> {
 fn wPID(window_name: &str) -> Option<u32> {
     let c_window_name = CString::new(window_name.to_lowercase()).ok()?;
     unsafe {
-        let hwnd = FindWindowA(null_mut(), c_window_name.as_ptr() as *const u8);
+        let hwnd = FindWindowA(null_mut(), c_window_name.as_ptr() as *const i8);
         if hwnd.is_null() {
             return None;
         }
@@ -65,8 +73,12 @@ fn PID(process_name: &str) -> Result<u32> {
     unsafe {
         if Process32First(snapshot, &mut entry) != 0 {
             loop {
-                let current_name = CStr::from_ptr(entry.szExeFile.as_ptr()).to_string_lossy().to_lowercase();
-                if current_name == c_process_name.to_string_lossy() || current_name == format!("{}.exe", c_process_name.to_string_lossy()) {
+                let current_name = CStr::from_ptr(entry.szExeFile.as_ptr())
+                    .to_string_lossy()
+                    .to_lowercase();
+                if current_name == c_process_name.to_string_lossy()
+                    || current_name == format!("{}.exe", c_process_name.to_string_lossy())
+                {
                     pid = Some(entry.th32ProcessID);
                     break;
                 }
@@ -120,11 +132,9 @@ fn find_low_cycle_thread(pid: u32) -> Result<HANDLE> {
     }
 
     valid_thread_handle.ok_or_else(|| anyhow::anyhow!("No valid thread found"))
-
 }
-fn cycles(tHandle: HANDLE) -> Result<u64> {
-    use windows_sys::Win32::Foundation::FILETIME;
 
+fn cycles(tHandle: HANDLE) -> Result<u64> {
     let mut creation_time: FILETIME = unsafe { std::mem::zeroed() };
     let mut exit_time: FILETIME = unsafe { std::mem::zeroed() };
     let mut kernel_time: FILETIME = unsafe { std::mem::zeroed() };

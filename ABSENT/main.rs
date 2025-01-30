@@ -9,17 +9,21 @@
 
 // cba dealing with windows-sys and its outdated docs
 // ill fix this in the future, deal with the SLIGHTLY larger binary size for now
-pub mod winsys;
 
 pub mod scope;
-pub mod inline;
+pub mod hooks;
+pub mod bounds;
 
 use scope::*;
-use inline::*;
+use hooks::*;
+use bounds::*;
 
 use std::env;
 use std::io::{self, Write};
 use anyhow::{Result, Error};
+
+use winapi::ctypes::c_void;
+use winapi::shared::ntdef::HANDLE;
 
 fn main() -> Result<(), Error> {
     let ascii_art = r#"
@@ -54,8 +58,8 @@ fn main() -> Result<(), Error> {
         }
     };
 
-    let pH = pI.handle;
-    let tH = pI.tHandle;
+    let pH: HANDLE = pI.handle as HANDLE;
+    let tH: HANDLE = pI.tHandle as HANDLE;
 
     println!("Process handle: {:?}\n  Thread handle: {:?}\n  PID: {}", pH, tH, pI.pid);
 
