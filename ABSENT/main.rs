@@ -27,13 +27,13 @@ use winapi::shared::ntdef::HANDLE;
 
 fn main() -> Result<(), Error> {
     let ascii_art = r#"
-    db      `7MM"""Yp,  .M"""bgd `7MM"""YMM  `7MN.   `7MF'MMP""MM""YMM 
-    ;MM:       MM    Yb ,MI    "Y   MM    `7    MMN.    M  P'   MM   `7 
-   ,V^MM.      MM    dP `MMb.       MM   d      M YMb   M       MM      
-  ,M  `MM      MM"""bg.   `YMMNq.   MMmmMM      M  `MN. M       MM      
-  AbmmmqMA     MM    `Y .     `MM   MM   Y  ,   M   `MM.M       MM      
- A'     VML    MM    ,9 Mb     dM   MM     ,M   M     YMM       MM      
-.AMA.   .AMMA..JMMmmmd9  P"Ybmmd"  .JMMmmmmMMM .JML.    YM     .JMML.    
+     N       `7MM"""Yp,   .M"""bgd `7MM"""YNMM  `7MN.   `7MF MMPM"NMM""YMM 
+    ;MM:       MM    Yb  ,MI    "Y   MM     `7   MMN.    M   P'   MM    `7 
+   ,V^MM.      MM    dP  `MMb.       MM   d      M YMb   M        MM      
+  ,M  `MM      MM"""bg.    `YMMNq.   MMmmMM      M  `MN. M        MM      
+  AbmmmqMA     MM    `Y  .     `MM   MM   Y  ,   M   `MM.M        MM      
+ A'     VML    MM    ,9  Mb     dM   MM     ,M   M     YMM        MM      
+.AMA.   .AMMA .JMMmmmd9   P"Ybmmd"  .JMMmmmmMM .JML.    YM      .JMML.    
    "#;
    
    println!("{}", ascii_art);
@@ -62,6 +62,8 @@ fn main() -> Result<(), Error> {
     let tH: HANDLE = pI.tHandle as HANDLE;
 
     println!("Process handle: {:?}\n  Thread handle: {:?}\n  PID: {}", pH, tH, pI.pid);
+
+    scan_ntdll_kernel32(pH);
 
     match process(pH) {
         Ok(_) => println!("No hooks detected. Analysis complete."),
