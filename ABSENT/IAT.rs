@@ -72,7 +72,7 @@ fn read_pointer(process_handle: HANDLE, remote_addr: usize) -> Option<usize> {
 }
 
 fn get_module_bounds(process_handle: HANDLE) -> HashMap<String, (usize, usize)> {
-    println!("Gathering module bounds...");
+    
     let mut modules = vec![null_mut(); 1024];
     let mut needed = 0;
 
@@ -129,7 +129,7 @@ fn get_module_bounds(process_handle: HANDLE) -> HashMap<String, (usize, usize)> 
         let base = module_info.lpBaseOfDll as usize;
         let size = module_info.SizeOfImage as usize;
 
-        println!("{} | Base: 0x{:x} | Size: 0x{:x}", name, base, size);
+        // println!("{} | Base: 0x{:x} | Size: 0x{:x}", name, base, size);
         module_map.insert(name, (base, size));
     }
 
@@ -171,7 +171,7 @@ fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<HookDe
         }
     };
 
-    let import_dir = nt_headers.OptionalHeader.DataDirectory[1]; // Import Table
+    let import_dir = nt_headers.OptionalHeader.DataDirectory[1];
     if import_dir.VirtualAddress == 0 || import_dir.VirtualAddress as usize > module_size {
         println!("No import table found for '{}'", target_module);
         return vec![];
@@ -232,8 +232,7 @@ fn scan_iat_for_hooks(process_handle: HANDLE, target_module: &str) -> Vec<HookDe
     results
 }
 
-pub fn scan_ntdll_kernel32(process_handle: HANDLE) -> Vec<HookDetectionResult> {
-    println!("Scanning for hooks in 'ntdll.dll' and 'kernel32.dll'...");
+pub fn scan(process_handle: HANDLE) -> Vec<HookDetectionResult> {
     let mut all_hooks = vec![];
     all_hooks.extend(scan_iat_for_hooks(process_handle, "ntdll.dll"));
     all_hooks.extend(scan_iat_for_hooks(process_handle, "kernel32.dll"));

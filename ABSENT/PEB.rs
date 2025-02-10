@@ -136,7 +136,7 @@ fn get_loaded_modules(process_handle: winapi::um::winnt::HANDLE) -> Vec<String> 
     }).collect()
 }
 
-pub fn check_peb_ldr(process_handle: winapi::um::winnt::HANDLE) {
+pub fn hidden_modules(process_handle: winapi::um::winnt::HANDLE) {
     if let Some(peb) = get_peb(process_handle) {
         let mut ldr_data_addr: *mut PEB_LDR_DATA = null_mut();
         if unsafe {

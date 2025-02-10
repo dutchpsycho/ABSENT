@@ -25,10 +25,10 @@ pub struct FunctionInfo {
     pub end: u64,
 }
 
-pub fn process(process_handle: HANDLE) -> Result<(), String> {
+pub fn integrity_check(pH: HANDLE) -> Result<(), String> {
 
     unsafe {
-        let original_module_base = loc_ntdll(process_handle)?;
+        let original_module_base = loc_ntdll(pH)?;
         let mut original_exports = HashMap::new();
         locate_exports(original_module_base, &mut original_exports)?;
 
@@ -47,12 +47,12 @@ pub fn process(process_handle: HANDLE) -> Result<(), String> {
     }
 }
 
-unsafe fn loc_ntdll(process_handle: HANDLE) -> Result<*const u8, String> {
+unsafe fn loc_ntdll(pH: HANDLE) -> Result<*const u8, String> {
     let mut module_handles: [HMODULE; 1024] = [ptr::null_mut(); 1024];
     let mut bytes_needed = 0;
 
     if EnumProcessModules(
-        process_handle,
+        pH,
         module_handles.as_mut_ptr(),
         std::mem::size_of_val(&module_handles) as u32,
         &mut bytes_needed,
@@ -63,7 +63,7 @@ unsafe fn loc_ntdll(process_handle: HANDLE) -> Result<*const u8, String> {
     for &module_handle in &module_handles[..(bytes_needed / std::mem::size_of::<HMODULE>() as u32) as usize] {
         let mut module_name = vec![0u8; 260];
         if GetModuleBaseNameA(
-            process_handle,
+            pH,
             module_handle,
             module_name.as_mut_ptr() as *mut i8, // FIX: cast to `*mut i8`
             module_name.len() as u32,
@@ -78,7 +78,7 @@ unsafe fn loc_ntdll(process_handle: HANDLE) -> Result<*const u8, String> {
         }
     }
 
-    Err("failed to locate ntdll.dll in target process".to_string())
+    Err("failed to locate ntdll.dll in target integrity_check".to_string())
 }
 
 unsafe fn locate_exports(module_base: *const u8, exports: &mut HashMap<String, u64>) -> Result<(), String> {

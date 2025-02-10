@@ -112,7 +112,7 @@ fn gather_regions(process_handle: HANDLE) -> Vec<MemoryRegion> {
     }
 
     if regions.is_empty() {
-        println!("No X private mem regions found");
+        println!("No executable private memory regions found");
     }
 
     regions
@@ -148,7 +148,7 @@ fn scan_region(process_handle: HANDLE, region: &MemoryRegion) {
     }
 }
 
-pub fn mem(process_handle: HANDLE) {
+pub fn prologue_check(process_handle: HANDLE) {
     let regions = gather_regions(process_handle);
 
     if regions.is_empty() {
